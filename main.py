@@ -10,12 +10,18 @@ import asyncio
 TOKEN = "8251636418:AAHmr0pZ0W4M2JiSjit7Kp1gZ-5AIkI4Yoc"
 WEBHOOK_URL = "https://hook.us2.make.com/381ufyzdly9s9fe26mjj7ks8hqfn0pf3"
 
+# ------------ RUTAS GLOBALES --------------
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Base de datos
+DB_PATH = os.path.join(BASE_DIR, "usuarios.db")
+
 # Ruta base de documentos
-DOCUMENTOS_DIR = os.path.join(os.path.dirname(__file__), "documentos")
+DOCUMENTOS_DIR = os.path.join(BASE_DIR, "documentos")
 
 # ------------ BASE DE DATOS --------------
 # check_same_thread=False porque el worker y el bot usan la misma conexión
-conn = sqlite3.connect("usuarios.db", check_same_thread=False)
+conn = sqlite3.connect(DB_PATH, check_same_thread=False)
 cursor = conn.cursor()
 
 cursor.execute("""
