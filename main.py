@@ -7,6 +7,7 @@ import requests
 import asyncio
 from flask import Flask
 import threading
+import logging
 
 # ------------ CONFIG --------------
 TOKEN = "8251636418:AAHmr0pZ0W4M2JiSjit7Kp1gZ-5AIkI4Yoc"
@@ -467,14 +468,27 @@ async def on_startup(app: Application):
         pass
 
 # ---------- NUEVO: arrancar bot en hilo + servidor Flask para Render ----------
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 flask_app = Flask(__name__)
 
 @flask_app.route("/")
 def home():
     return "Bot ejecutándose en Render — polling + keep-alive 🚀", 200
 
-def start_bot():
-    """Construye la Application y arranca polling (se ejecuta en un hilo)."""
+def run_flask_background():
+    port = int(os.environ.get("PORT", 10000))
+    # Ejecuta Flask en hilo daemon
+    flask_app.run(host="0.0.0.0", port=port)
+
+def main():
+    # 1) Arrancar Flask en hilo daemon (para que Render vea puerto)
+    t = threading.Thread(target=run_flask_background, daemon=True)
+    t.start()
+    logger.info("Flask keep-alive arrancado en hilo (puerto %s).", os.environ.get("PORT", "10000"))
+
+    # 2) Construir la Application Telegram
     try:
         application = Application.builder().token(TOKEN).post_init(on_startup).build()
     except Exception:
@@ -486,17 +500,16 @@ def start_bot():
     application.add_handler(CallbackQueryHandler(manejar_callback))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_titulo))
 
-    # arrancar polling (blocking) dentro del hilo
+    # 3) Forzar eliminación de cualquier webhook activo (si existe)
+    try:
+        resp = requests.get(f"https://api.telegram.org/bot{TOKEN}/deleteWebhook", timeout=8)
+        logger.info("deleteWebhook -> %s %s", resp.status_code, resp.text)
+    except Exception as e:
+        logger.exception("Error al llamar deleteWebhook: %s", e)
+
+    # 4) Ejecutar polling en hilo principal (bloqueante) — CORRECCIÓN CLAVE
+    logger.info("Arrancando bot con polling en hilo principal...")
     application.run_polling()
-
-def main():
-    # Iniciar bot en un hilo aparte
-    t = threading.Thread(target=start_bot, daemon=True)
-    t.start()
-
-    # Iniciar servidor Flask (Render provee $PORT)
-    port = int(os.environ.get("PORT", 10000))
-    flask_app.run(host="0.0.0.0", port=port)
 
 if __name__ == "__main__":
     main()
