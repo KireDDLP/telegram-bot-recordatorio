@@ -5,23 +5,19 @@ import os
 import datetime
 import requests
 import asyncio
+from flask import Flask
+import threading
 
 # ------------ CONFIG --------------
 TOKEN = "8251636418:AAHmr0pZ0W4M2JiSjit7Kp1gZ-5AIkI4Yoc"
 WEBHOOK_URL = "https://hook.us2.make.com/381ufyzdly9s9fe26mjj7ks8hqfn0pf3"
 
-# ------------ RUTAS GLOBALES --------------
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
-# Base de datos
-DB_PATH = os.path.join(BASE_DIR, "usuarios.db")
-
 # Ruta base de documentos
-DOCUMENTOS_DIR = os.path.join(BASE_DIR, "documentos")
+DOCUMENTOS_DIR = os.path.join(os.path.dirname(__file__), "documentos")
 
 # ------------ BASE DE DATOS --------------
 # check_same_thread=False porque el worker y el bot usan la misma conexión
-conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+conn = sqlite3.connect("usuarios.db", check_same_thread=False)
 cursor = conn.cursor()
 
 cursor.execute("""
@@ -470,24 +466,37 @@ async def on_startup(app: Application):
         # no queremos que fallos aquí eviten que el bot arranque
         pass
 
-def main():
-    # construimos la app registrando on_startup con post_init
+# ---------- NUEVO: arrancar bot en hilo + servidor Flask para Render ----------
+flask_app = Flask(__name__)
+
+@flask_app.route("/")
+def home():
+    return "Bot ejecutándose en Render — polling + keep-alive 🚀", 200
+
+def start_bot():
+    """Construye la Application y arranca polling (se ejecuta en un hilo)."""
     try:
-        app = Application.builder().token(TOKEN).post_init(on_startup).build()
+        application = Application.builder().token(TOKEN).post_init(on_startup).build()
     except Exception:
-        # Si tu versión de PTB no soporta post_init, intenta construir sin él
-        app = Application.builder().token(TOKEN).build()
+        application = Application.builder().token(TOKEN).build()
 
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.PHOTO, recibir_foto))
-    app.add_handler(CommandHandler("menu", mostrar_menu))
-    app.add_handler(CallbackQueryHandler(manejar_callback))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_titulo))
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(MessageHandler(filters.PHOTO, recibir_foto))
+    application.add_handler(CommandHandler("menu", mostrar_menu))
+    application.add_handler(CallbackQueryHandler(manejar_callback))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_titulo))
 
-    # arrancar polling (blocking)
-    app.run_polling()
+    # arrancar polling (blocking) dentro del hilo
+    application.run_polling()
 
-if __name__ == "__main__":
-    main()
+def main():
+    # Iniciar bot en un hilo aparte
+    t = threading.Thread(target=start_bot, daemon=True)
+    t.start()
+
+    # Iniciar servidor Flask (Render provee $PORT)
+    port = int(os.environ.get("PORT", 10000))
+    flask_app.run(host="0.0.0.0", port=port)
+
 if __name__ == "__main__":
     main()
